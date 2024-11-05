@@ -1,0 +1,83 @@
+{
+  "name": "ollama-code-reviewer",
+  "displayName": "Ollama Code Expert",
+  "publisher": "IDPArchitect",
+  "description": "Ollama AI Code Reviewer",
+  "repository": "https://github.com/IDPArchitect/ollama-code-reviewer.git",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:backstage-party-social-network.codeReviewWithOllama",
+    "onCommand:backstage-party-social-network.gitDiffAnalysis",
+    "*"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "backstage-party-social-network.codeReviewWithOllama",
+        "title": "Code Review with Ollama"
+      },
+      {
+        "command": "backstage-party-social-network.gitDiffAnalysis",
+        "title": "Analyze Git Changes with Ollama"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "backstage-party-social-network.codeReviewWithOllama",
+          "when": "editorTextFocus && resourceScheme == 'file'",
+          "group": "navigation"
+        },
+        {
+          "command": "backstage-party-social-network.gitDiffAnalysis",
+          "when": "editorTextFocus && resourceScheme == 'file'",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "backstage-party-social-network.codeReviewWithOllama",
+          "when": "resourceScheme == 'file'",
+          "group": "navigation"
+        },
+        {
+          "command": "backstage-party-social-network.gitDiffAnalysis",
+          "when": "resourceScheme == 'file'",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.9",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^8.10.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.13.0",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@langchain/ollama": "^0.1.1",
+    "axios": "^1.7.7",
+    "langchain": "^0.3.5"
+  }
+}
+
