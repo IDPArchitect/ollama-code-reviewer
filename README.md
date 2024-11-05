@@ -1,5 +1,5 @@
 
-# Backstage Party Social Network - Code Review Extension
+# Code Review Extension
 
 A VSCode extension that leverages Ollama to provide AI-powered code reviews and git diff analysis directly in your editor.
 
