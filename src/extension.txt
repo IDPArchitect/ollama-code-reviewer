@@ -1,0 +1,425 @@
+// Required Imports
+import * as vscode from "vscode";
+import { ChatOllama } from "@langchain/ollama";
+import * as fs from "fs";
+import * as path from "path";
+import * as childProcess from "child_process";
+import axios from "axios";
+import { ChatOpenAI } from "@langchain/openai";
+import { ChatAnthropic } from "@langchain/anthropic";
+
+// Flags to enable or disable specific services
+const ENABLE_OPENAI = 'true';
+const ENABLE_ANTHROPIC = 'false';
+
+// Status bar item to show Ollama connection status
+let statusBarItem: vscode.StatusBarItem;
+let healthCheckInterval: NodeJS.Timeout;
+
+// Main activation function
+export function activate(context: vscode.ExtensionContext) {
+  console.log('Extension "backstage-party-social-network" is now active!');
+
+  // Initialize status bar
+  statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100
+  );
+  statusBarItem.text = "$(sync~spin) Checking Ollama...";
+  statusBarItem.tooltip = "Checking Ollama connection status";
+  statusBarItem.show();
+
+  // Start health checks
+  // checkHealth();
+  // healthCheckInterval = setInterval(checkHealth, 15 * 60 * 1000);
+
+  // Register all commands
+  const commands = [
+    registerCommand(
+      "bestPracticesReview",
+      `Act as an expert software engineer and perform a comprehensive best practices review of the following code. Focus on:
+      1. Code style and conventions
+      2. Design patterns usage
+      3. Performance best practices
+      4. Error handling
+      5. Documentation standards
+      6. Testing considerations
+      7. Maintainability aspects
+      Analyze the code and provide specific recommendations for each category where applicable:`
+    ),
+    registerCommand(
+      "securityReview",
+      `Act as an expert security engineer and perform a comprehensive security analysis of the following code. Focus on:
+      1. Potential security vulnerabilities
+      2. Input validation
+      3. Authentication and authorization concerns
+      4. Data protection
+      5. Secure coding practices
+      6. Common security pitfalls
+      7. Security best practices specific to the language/framework
+      Provide a detailed security analysis with specific findings and recommendations:`
+    ),
+    registerCommand(
+      "architecturalReview",
+      `Act as an expert software architect and perform a comprehensive architectural analysis of the following code. Focus on:
+      1. Overall architecture patterns
+      2. Component relationships
+      3. Dependency management
+      4. Scalability considerations
+      5. Modularity and cohesion
+      6. Interface design
+      7. Architectural principles (SOLID, etc.)
+      Provide detailed architectural insights and recommendations:`
+    ),
+    registerCommand(
+      "organizationReview",
+      `Act as an expert software engineer and perform a comprehensive analysis of the code organization and structure. Focus on:
+      1. File and code organization
+      2. Code structure and hierarchy
+      3. Naming conventions
+      4. Code grouping and separation
+      5. Module organization
+      6. Project structure best practices
+      7. Code readability and maintainability
+      Provide detailed insights and recommendations for improving the code organization:`
+    ),
+    registerCommand(
+      "fixCodeWithOllama",
+      `Act as an expert software engineer. Analyze the following code, identify any issues or potential improvements, and provide a corrected version with explanations of the changes made. If the code appears correct, suggest potential optimizations or best practices that could be applied. Format your response in markdown with clear sections for 'Issues Found', 'Suggested Fixes', and 'Improved Code':`
+    ),
+    vscode.commands.registerCommand(
+      "backstage-party-social-network.checkHealth",
+      async () => {
+        try {
+          const isHealthy = await checkHealth();
+          if (isHealthy) {
+            vscode.window.showInformationMessage("All services are running and responsive");
+          }
+        } catch (error) {
+          console.error("Error in health check command:", error);
+          vscode.window.showErrorMessage("Error checking service health. Please try again.");
+        }
+      }
+    )
+  ];
+
+  // Register auto-save handler
+  const autoSaveHandler = vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
+    console.log(`Document saved: ${document.fileName}`);
+    processDocument(document);
+  });
+
+  // Add all commands and disposables to subscriptions
+  context.subscriptions.push(statusBarItem, autoSaveHandler, ...commands);
+}
+
+// Utility Functions
+async function communicateWithOllama(prompt: string, timeoutMs: number = 600000): Promise<any> {
+  return new Promise(async (resolve, reject) => {
+    let isCompleted = false;
+
+    const timeoutId = setTimeout(() => {
+      if (!isCompleted) {
+        console.log("Ollama request timed out after", timeoutMs / 1000, "seconds");
+        isCompleted = true;
+        reject(new Error(`Ollama request timed out after ${timeoutMs / 1000} seconds`));
+      }
+    }, timeoutMs);
+
+    try {
+      handleFallback(prompt, resolve, reject);
+      console.log("Initializing Ollama model");
+      const model = new ChatOllama({
+        model: "llama3.2",
+        baseUrl: "http://localhost:11434",
+      });
+
+      console.log("Sending request to Ollama");
+      const response = await model.invoke(["human", prompt]);
+
+      if (!isCompleted) {
+        isCompleted = true;
+        clearTimeout(timeoutId);
+        console.log("Received response from Ollama");
+        resolve(response);
+      }
+    } catch (error) {
+      if (!isCompleted) {
+        isCompleted = true;
+        clearTimeout(timeoutId);
+        console.error("Error in Ollama communication:", error);
+        handleFallback(prompt, resolve, reject);
+      }
+    }
+  });
+}
+
+async function handleFallback(prompt: string, resolve: (value: any) => void, reject: (reason?: any) => void) {
+  if (ENABLE_OPENAI === 'true') {
+    console.log("Falling back to ChatGPT...");
+    communicateWithChatGPT(prompt)
+      .then((response) => {
+        console.log("Received response from ChatGPT: ", response.content ? response.content : response);
+        response.source = "ChatGPT";
+        resolve(response);
+      })
+      .catch(() => {
+        if (ENABLE_ANTHROPIC) {
+          console.log("Falling back to ClaudeAI...");
+          communicateWithClaude(prompt)
+            .then((response) => {
+              console.log("Received response from ClaudeAI: ", response.content ? response.content : response);
+              response.source = "ClaudeAI";
+              resolve(response);
+            })
+            .catch((finalError) => {
+              console.error("Error in ClaudeAI communication:", finalError);
+              reject(finalError);
+            });
+        } else {
+          reject(new Error("All fallback services failed."));
+        }
+      });
+  } else if (ENABLE_ANTHROPIC) {
+    console.log("Falling back to ClaudeAI...");
+    communicateWithClaude(prompt)
+      .then((response) => {
+        console.log("Received response from ClaudeAI: ", response.content ? response.content : response);
+        response.source = "ClaudeAI";
+        resolve(response);
+      })
+      .catch((finalError) => {
+        console.error("Error in ClaudeAI communication:", finalError);
+        reject(finalError);
+      });
+  } else {
+    reject(new Error("No fallback services enabled."));
+  }
+}
+
+async function communicateWithChatGPT(prompt: string, timeoutMs: number = 120000): Promise<any> {
+  if (ENABLE_OPENAI !== 'true') {
+    throw new Error("OpenAI is disabled");
+  }
+  try {
+    console.log("Initializing ChatGPT model");
+    const model = new ChatOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      modelName: "gpt-4",
+    });
+
+    console.log("Sending request to ChatGPT");
+    const response = await model.invoke(prompt);
+    console.log("Received response from ChatGPT: ", response.content ? response.content : response);
+    return response;
+  } catch (error) {
+    console.error("Error in ChatGPT communication:", error);
+    throw error;
+  }
+}
+
+async function communicateWithClaude(prompt: string, timeoutMs: number = 120000): Promise<any> {
+  if (!ENABLE_ANTHROPIC) {
+    throw new Error("Anthropic is disabled");
+  }
+  try {
+    console.log("Initializing ClaudeAI model");
+    const model = new ChatAnthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      modelName: "claude-v1",
+    });
+
+    console.log("Sending request to ClaudeAI");
+    const response = await model.invoke(prompt);
+    console.log("Received response from ClaudeAI: ", response.content ? response.content : response);
+    return response;
+  } catch (error) {
+    console.error("Error in ClaudeAI communication:", error);
+    throw error;
+  }
+}
+
+async function checkHealth(): Promise<boolean> {
+  try {
+    console.log("Checking Ollama health...");
+    const ollamaResponse = await axios.get('http://localhost:11434/api/version', {
+      timeout: 5000,
+      validateStatus: (status) => status === 200
+    });
+    console.log("Ollama health check response:", ollamaResponse.status);
+
+    if (ENABLE_OPENAI === 'true') {
+      console.log("Checking ChatGPT health...");
+      const chatGPTResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Health check" }]
+      }, {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        timeout: 10000,
+        validateStatus: (status) => status === 200
+      });
+      console.log("ChatGPT health check response:", chatGPTResponse.status);
+    }
+
+    if (!ENABLE_ANTHROPIC) {
+      console.log("Checking ClaudeAI health...");
+      const claudeResponse = await axios.post('https://api.anthropic.com/v1/complete', {
+        prompt: "Health check",
+        model: "claude-v1"
+      }, {
+        headers: {
+          Authorization: `Bearer ${process.env.ANTHROPIC_API_KEY}`
+        },
+        timeout: 10000,
+        validateStatus: (status) => status === 200
+      });
+      console.log("ClaudeAI health check response:", claudeResponse.status);
+    }
+
+    statusBarItem.text = "$(check) All Services Connected";
+    statusBarItem.tooltip = "All services are running and responsive";
+    statusBarItem.backgroundColor = undefined;
+    return true;
+  } catch (error) {
+    console.error('Health check failed:', error);
+    statusBarItem.text = "$(error) Service Offline";
+    statusBarItem.tooltip = "One or more services are not responding. Please check the logs.";
+    statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+    return false;
+  }
+}
+
+async function processDocument(document: vscode.TextDocument) {
+  console.log(`Processing document: ${document.fileName}`);
+  processOllamaRequest(
+    `Act as an expert software engineer and analyze this code that was just saved. Provide a brief review of any potential issues, improvements, or notable patterns:
+
+${document.getText()}`,
+    "Auto-Save Analysis",
+    document.fileName
+  ).catch(error => {
+    console.error("Error processing saved document:", error);
+  });
+}
+
+function registerCommand(command: string, prompt: string) {
+  return vscode.commands.registerCommand(
+    `backstage-party-social-network.${command}`,
+    async () => {
+      try {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showWarningMessage("No active editor found");
+          return;
+        }
+
+        const selection = editor.selection;
+        const codeToAnalyze = !selection.isEmpty 
+          ? editor.document.getText(selection)
+          : editor.document.getText();
+
+        await processOllamaRequest(prompt + `
+
+${codeToAnalyze}`, command, editor.document.fileName);
+      } catch (error) {
+        console.error(`Error in ${command}:`, error);
+        vscode.window.showErrorMessage(`Error in ${command}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+  );
+}
+
+async function processOllamaRequest(prompt: string, reviewType: string, fileName: string): Promise<void> {
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Processing ${reviewType}`,
+      cancellable: true,
+    },
+    async (progress, token) => {
+      try {
+        progress.report({ increment: 0, message: "Checking Ollama status..." });
+        const isHealthy = await checkHealth();
+        if (!isHealthy) {
+          throw new Error('Ollama is not available');
+        }
+
+        progress.report({ increment: 20, message: "Analyzing code..." });
+        const response = await communicateWithOllama(prompt);
+
+        if (token.isCancellationRequested) {
+          return;
+        }
+
+        progress.report({ increment: 40, message: "Processing results..." });
+        const feedback = typeof response.content === "string"
+          ? response.content
+          : "No meaningful feedback received from Ollama.";
+
+        // Create and show document
+        const document = await vscode.workspace.openTextDocument({
+          content: `# ${reviewType} Results\n\n${feedback}`,
+          language: 'markdown'
+        });
+
+        await vscode.window.showTextDocument(document, {
+          viewColumn: vscode.ViewColumn.Beside,
+          preserveFocus: true
+        });
+
+        await saveFeedbackToMarkdown(feedback, fileName);
+        vscode.window.showInformationMessage(`${reviewType} complete!`);
+      } catch (error) {
+        console.error(`Error in ${reviewType}:`, error);
+        vscode.window.showErrorMessage(`Error in ${reviewType}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+  );
+}
+
+function saveFeedbackToMarkdown(rawOutput: string, originalFilePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders) {
+        throw new Error("No workspace folder is open.");
+      }
+
+      const workspacePath = workspaceFolders[0].uri.fsPath;
+      const feedbackDir = path.join(workspacePath, "ollama_feedback");
+
+      if (!fs.existsSync(feedbackDir)) {
+        fs.mkdirSync(feedbackDir);
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const originalFileName = path.basename(originalFilePath, path.extname(originalFilePath));
+      const feedbackFilePath = path.join(feedbackDir, `${originalFileName}-OllamaFeedback-${timestamp}.md`);
+
+      const content = `# Ollama AI Feedback\n\n**Original File**: ${originalFilePath}\n\n**Feedback Generated on**: ${new Date().toLocaleString()}\n\n## Raw Output\n\n${rawOutput}`;
+      
+      fs.writeFileSync(feedbackFilePath, content, "utf8");
+      vscode.commands.executeCommand("markdown.showPreview", vscode.Uri.file(feedbackFilePath));
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Deactivation function
+export function deactivate(): void {
+  console.log('Extension "backstage-party-social-network" has been deactivated!');
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+  }
+  if (statusBarItem) {
+    statusBarItem.dispose();
+  }
+}
+
+
+
+
