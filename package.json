@@ -68,42 +68,42 @@
       "editor/context": [
         {
           "command": "backstage-party-social-network.codeReviewWithOllama",
-          "group": "ollama@1",
+          "group": "1_ollama@1",
           "when": "editorTextFocus"
         },
         {
           "command": "backstage-party-social-network.explainCodeWithOllama",
-          "group": "ollama@2",
+          "group": "1_ollama@2",
           "when": "editorTextFocus"
         },
         {
           "command": "backstage-party-social-network.fixCodeWithOllama",
-          "group": "ollama@3",
+          "group": "1_ollama@3",
           "when": "editorHasSelection"
         },
         {
+          "command": "backstage-party-social-network.gitDiffAnalysis",
+          "group": "1_ollama@4",
+          "when": "editorTextFocus"
+        },
+        {
           "command": "backstage-party-social-network.bestPracticesReview",
-          "group": "ollamaAnalysis@1",
+          "group": "2_analysis@1",
           "when": "editorTextFocus"
         },
         {
           "command": "backstage-party-social-network.securityReview",
-          "group": "ollamaAnalysis@2",
+          "group": "2_analysis@2",
           "when": "editorTextFocus"
         },
         {
           "command": "backstage-party-social-network.architecturalReview",
-          "group": "ollamaAnalysis@3",
+          "group": "2_analysis@3",
           "when": "editorTextFocus"
         },
         {
           "command": "backstage-party-social-network.organizationReview",
-          "group": "ollamaAnalysis@4",
-          "when": "editorTextFocus"
-        },
-        {
-          "command": "backstage-party-social-network.gitDiffAnalysis",
-          "group": "ollama@4",
+          "group": "2_analysis@4",
           "when": "editorTextFocus"
         }
       ],
